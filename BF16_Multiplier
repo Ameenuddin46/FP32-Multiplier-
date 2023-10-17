@@ -1,0 +1,67 @@
+// Code your design here
+module bf16_mul(
+	input 					clk								,
+	input 					rst								,
+	input 		[15:0] 		a_operand						,
+	input 		[15:0] 		b_operand						,
+	input 					a_operand_valid					,
+  	input 					b_operand_valid					,
+	output reg 				Exception,Overflow,Underflow	,
+  	output reg 		 		result_valid					,
+  	output reg 	[15:0]		result
+	);
+
+	logic 					sign,product_round,normalised,zero;
+	logic 		[8:0] 		exponent,sum_exponent;
+	logic 		[6:0] 		product_mantissa;
+	logic 		[7:0] 		operand_a,operand_b;
+	logic 		[15:0] 		product,product_normalised; //16 Bits
+
+  	always@(posedge clk)
+		if(!rst)begin
+      		result= 16'h0000;
+          	result_valid= 1'b0;
+        end else if ((a_operand_valid==1'b1)&(b_operand_valid==1'b1))begin
+          
+          	sign = a_operand[15] ^ b_operand[15];
+
+			//Exception flag sets 1 if either one of the exponent is 255.
+	 		Exception = (&a_operand[14:7]) | (&b_operand[14:7]);
+
+			//Assigining significand values according to Hidden Bit.
+			//If exponent is equal to zero then hidden bit will be 0 for that respective significand else  it will be 1
+
+			operand_a = (|a_operand[14:7]) ? {1'b1,a_operand[6:0]} : {1'b0,a_operand[6:0]};
+
+			operand_b = (|b_operand[14:7]) ? {1'b1,b_operand[6:0]} : {1'b0,b_operand[6:0]};
+	
+			product = operand_a * operand_b;			//Calculating Product
+	
+    		product_round = |product_normalised[6:0];  //Ending 6 bits are OR'ed for rounding operation.
+
+			normalised = product[15] ? 1'b1 : 1'b0;	
+
+			product_normalised = normalised ? product : product << 1;	//Assigning Normalised value based on 48th bit
+
+			//Final Manitssa.
+			product_mantissa = product_normalised[14:8] + {5'b0,(product_normalised[7] & product_round)};
+
+			zero = Exception ? 1'b0 : (product_mantissa == 7'd0) ? 1'b1 : 1'b0;
+
+			sum_exponent = a_operand[14:7] + b_operand[14:7];
+
+			exponent = sum_exponent - 8'd127 + normalised;
+        
+			Overflow = ((exponent[8] & !exponent[7]) & !zero) ; //If overall exponent is greater than 255 then Overflow condition.
+			//Exception Case when exponent reaches its maximu value that is 384.
+
+			//If sum of both exponents is less than 127 then Underflow condition.
+			Underflow = ((exponent[8] & exponent[7]) & !zero) ? 1'b1 : 1'b0; 
+
+  			result = Exception ? 16'd0 : zero ? {sign,15'd0} : Overflow ? {sign,8'hFF,7'd0} : Underflow ? {sign,15'd0} :{sign,exponent[7:0],product_mantissa};
+           result_valid = 1'b1;
+        end else begin
+         	result 			=	result	;
+          	result_valid	=	1'b0		;
+        end
+endmodule
